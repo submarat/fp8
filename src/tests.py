@@ -104,6 +104,22 @@ def test_lossless_quantization_cases(test_case, n_mantissa, start_bin, max_bin):
 
     torch.testing.assert_close(input, quantized_fp8.to(torch.uint8))
 
+@pytest.mark.parametrize("test_case, n_mantissa, num, offset, expected",
+[
+    ("e5m2 clamp if > largest positive", 2, e5m2["largest_normal"], 1, e5m2["largest_normal"]),
+    ("e5m2 clamp if < smallest negative", 2, e5m2["-largest_normal"], -1, e5m2["-largest_normal"]),
+    # ("e4m3 clamp if > largest positive", 3, e4m3["largest_normal"], 1, e4m3["largest_normal"]),
+    # ("e4m3 clamp if < smallest negative", 3, e4m3["-largest_normal"], -1, e4m3["-largest_normal"]),
+])
+def test_round_special(test_case: str, n_mantissa, num, offset, expected):
+    fp8_tensor = torch.tensor(num, dtype=torch.uint8)
+    expected_fp8 = torch.tensor(expected, dtype=torch.uint8)
+    bfloat16_tensor = fp8_to_bfloat16(fp8_tensor, n_mantissa) + offset
+
+    chopped_fp8 = bfloat16_to_fp8(bfloat16_tensor, n_mantissa)
+
+    assert chopped_fp8 == expected_fp8
+
 # @pytest.mark.parametrize("n_mantissa", [ 2, 3 ])
 @pytest.mark.parametrize("n_mantissa", [ 2 ])
 def test_avg(n_mantissa):
