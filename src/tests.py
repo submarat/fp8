@@ -81,6 +81,29 @@ def test_round(test_case: str, n_mantissa: int, start_value: int, end_value):
 
         prev = curr
 
+@pytest.mark.parametrize("test_case, n_mantissa, start_bin, max_bin",
+[
+    ("e5m2 positive", 2, e5m2["0"], e5m2["largest_normal"]),
+    ("e5m2 negative", 2, e5m2["-0"] + 1, e5m2["-largest_normal"]-1),
+    # ("e4m3 positive", 3, e4m3["0"], e4m3["largest_normal_ext"]),
+    # ("e4m3 negative", 3, e4m3["-0"] + 1, e4m3["-largest_normal_ext"]),
+])
+def test_lossless_quantization_cases(test_case, n_mantissa, start_bin, max_bin):
+
+    def generate_input(start_bin, end_bin, shape: tuple = (1, 1)) -> torch.Tensor:
+        range_values = torch.arange(start_bin, end_bin, dtype=torch.uint8)
+        num_elements = torch.prod(torch.tensor(shape)).item()
+        repeated_values = range_values.repeat((num_elements // range_values.size(0)) + 1)[:num_elements]
+        result_tensor = repeated_values.view(shape)
+        return result_tensor.to(dtype=torch.uint8)
+    
+    input = generate_input(start_bin, max_bin)
+
+    quantized_bfloat16 = undo_int8_fp8(input, n_mantissa, None)
+    quantized_fp8 = round_to_fp8_represented_as_int8(quantized_bfloat16, n_mantissa, None)
+
+    torch.testing.assert_close(input, quantized_fp8.to(torch.uint8))
+
 # @pytest.mark.parametrize("n_mantissa", [ 2, 3 ])
 @pytest.mark.parametrize("n_mantissa", [ 2 ])
 def test_avg(n_mantissa):

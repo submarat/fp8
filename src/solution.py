@@ -152,14 +152,10 @@ def round_to_fp8_represented_as_int8(
     
     if n_mantissa == 2:
         # Use encode_as_e5m2_stochastic for E5M2 format
-        t_bits = bfloat16_to_bits(t)
-        fp8_int = encode_as_e5m2_stochastic(t_bits)
+        out = bfloat16_to_fp8(t, n_mantissa, rounding='stochastic')
     else:
         # TODO: Implement E4M3 encoding if needed
         raise NotImplementedError("E4M3 encoding not implemented yet")
-    
-    # Convert the result to uint8
-    out = fp8_int.to(torch.uint8)
     
     return out
 
