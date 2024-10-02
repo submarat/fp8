@@ -105,15 +105,22 @@ def encode_as_e5m2_stochastic(t: torch.Tensor) -> torch.Tensor:
     
     return result
 
-def bfloat16_to_fp8(t: torch.Tensor, mantissa_bits: int) -> torch.Tensor:
+def bfloat16_to_fp8(t: torch.Tensor, mantissa_bits: int, rounding: str = 'trunc') -> torch.Tensor:
     assert t.dtype == torch.bfloat16
     assert mantissa_bits == 2  # Assuming E5M2 format for now
 
     # Convert bfloat16 to int32 bits representation
     t_bits = bfloat16_to_bits(t)
 
-    # Use encode_as_e5m2_trunc to convert to E5M2 format
-    fp8_int = encode_as_e5m2_trunc(t_bits)
+    # Choose rounding method
+    if rounding == 'trunc':
+        fp8_int = encode_as_e5m2_trunc(t_bits)
+    elif rounding == 'roundup':
+        fp8_int = encode_as_e5m2_round_up(t_bits)
+    elif rounding == 'stochastic':
+        fp8_int = encode_as_e5m2_stochastic(t_bits)
+    else:
+        raise ValueError("Invalid rounding method. Choose 'trunc', 'roundup', or 'stochastic'.")
 
     # Convert the result to uint8
     return fp8_int.to(torch.uint8)
