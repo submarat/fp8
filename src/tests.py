@@ -111,7 +111,7 @@ def test_lossless_quantization_cases(test_case, n_mantissa, start_bin, max_bin):
     ("e4m3 clamp if > largest positive", 3, e4m3["largest_normal"], 1, e4m3["largest_normal"]),
     ("e4m3 clamp if < smallest negative", 3, e4m3["-largest_normal"], -1, e4m3["-largest_normal"]),
 ])
-def test_round_special(test_case: str, n_mantissa, num, offset, expected):
+def test_clamp(test_case: str, n_mantissa, num, offset, expected):
     fp8_tensor = torch.tensor(num, dtype=torch.uint8)
     expected_fp8 = torch.tensor(expected, dtype=torch.uint8)
     bfloat16_tensor = fp8_to_bfloat16(fp8_tensor, n_mantissa) + offset
@@ -148,6 +148,17 @@ def test_bfloat16_to_fp8_subnormals(test_case, n_mantissa, input_value, expected
     expected = torch.tensor([expected_output], dtype=torch.uint8)
     
     assert torch.all(result == expected), f"Failed for {test_case}: expected {expected}, got {result}"
+
+@pytest.mark.parametrize("n_mantissa, format_name", [
+    (2, "e5m2"),
+    (3, "e4m3")
+])
+def test_bfloat16_to_fp8_zero(n_mantissa, format_name):
+    zero_tensor = torch.tensor([0.0], dtype=torch.bfloat16)
+    
+    result = bfloat16_to_fp8(zero_tensor, n_mantissa)
+    expected = torch.tensor([0], dtype=torch.uint8)
+    assert torch.all(result == expected), f"Failed for {format_name}: expected {expected}, got {result}"
 
 
 # @pytest.mark.parametrize("n_mantissa", [2, 3])
