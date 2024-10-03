@@ -120,6 +120,36 @@ def test_round_special(test_case: str, n_mantissa, num, offset, expected):
 
     assert chopped_fp8 == expected_fp8
 
+@pytest.mark.parametrize("test_case, n_mantissa, input_value, expected_output", [
+    ("e5m2 subnormal 1 (smallest positive)", 2, 1.5259e-05, 0b00000001),
+    ("e5m2 subnormal 2", 2, 3.0518e-05, 0b00000010),
+    ("e5m2 subnormal 3 (largest positive)", 2, 4.5776e-05, 0b00000011),
+    ("e5m2 subnormal -1 (smallest negative)", 2, -1.5259e-05, 0b10000001),
+    ("e5m2 subnormal -2", 2, -3.0518e-05, 0b10000010),
+    ("e5m2 subnormal -3 (largest negative)", 2, -4.5776e-05, 0b10000011),
+    ("e4m3 subnormal 1 (smallest positive)", 3, 1.9531e-03, 0b00000001),
+    ("e4m3 subnormal 2", 3, 3.9062e-03, 0b00000010),
+    ("e4m3 subnormal 3", 3, 5.8594e-03, 0b00000011),
+    ("e4m3 subnormal 4", 3, 7.8125e-03, 0b00000100),
+    ("e4m3 subnormal 5", 3, 9.7656e-03, 0b00000101),
+    ("e4m3 subnormal 6", 3, 1.1719e-02, 0b00000110),
+    ("e4m3 subnormal 7 (largest positive)", 3, 1.3672e-02, 0b00000111),
+    ("e4m3 subnormal -1 (smallest negative)", 3, -1.9531e-03, 0b10000001),
+    ("e4m3 subnormal -2", 3, -3.9062e-03, 0b10000010),
+    ("e4m3 subnormal -3", 3, -5.8594e-03, 0b10000011),
+    ("e4m3 subnormal -4", 3, -7.8125e-03, 0b10000100),
+    ("e4m3 subnormal -5", 3, -9.7656e-03, 0b10000101),
+    ("e4m3 subnormal -6", 3, -1.1719e-02, 0b10000110),
+    ("e4m3 subnormal -7 (largest negative)", 3, -1.3672e-02, 0b10000111),
+])
+def test_bfloat16_to_fp8_subnormals(test_case, n_mantissa, input_value, expected_output):
+    input_tensor = torch.tensor([input_value], dtype=torch.bfloat16)
+    result = bfloat16_to_fp8(input_tensor, n_mantissa)
+    expected = torch.tensor([expected_output], dtype=torch.uint8)
+    
+    assert torch.all(result == expected), f"Failed for {test_case}: expected {expected}, got {result}"
+
+
 # @pytest.mark.parametrize("n_mantissa", [2, 3])
 @pytest.mark.parametrize("n_mantissa", [2])
 @pytest.mark.parametrize("scale", [0.1, 1.0, 10.0])
