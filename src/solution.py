@@ -54,6 +54,8 @@ def decompose_8bit_e5m2(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, to
 def encode_as_e5m2_trunc(t: torch.Tensor) -> torch.Tensor:
     assert t.dtype == torch.int32
     s, e, m = decompose_16bit(t)
+    # Handle zero values
+    is_zero = (e == 0) & (m == 0)
     # Quantize to e5m2
     # Subtract bfloat16 bias
     e = (e - 127) % 0b1_0000_0000
@@ -61,20 +63,30 @@ def encode_as_e5m2_trunc(t: torch.Tensor) -> torch.Tensor:
     e = (e + 15) % 0b1_00_000
     # chop mantissa
     m = m >> 5
-    return (s << 7) + (e << 2) + m
+    # Compose the result
+    result = (s << 7) + (e << 2) + m
+    # Set zero values
+    return torch.where(is_zero, 0, result)
 
 def decode_from_e5m2(encoded: torch.Tensor) -> torch.Tensor:
     assert encoded.dtype == torch.int32
     s, e, m = decompose_8bit_e5m2(encoded)
-    # Update mantissa
+    # Handle zero
+    is_zero = (e == 0) & (m == 0)
+    # Update exponent
     e = e + (127 - 15) % 0b1_0000_0000
     # Expand mantissa
     m = m << 5
-    return (s << 15) + (e << 7) + m
+    # Compose the result
+    result = (s << 15) + (e << 7) + m
+    # Set zero values
+    return torch.where(is_zero, 0, result)
 
 def encode_as_e5m2_round_up(t: torch.Tensor) -> torch.Tensor:
     assert t.dtype == torch.int32
     s, e, m = decompose_16bit(t)
+    # Handle zero values
+    is_zero = (e == 0) & (m == 0)
     # Quantize to e5m2
     # Subtract bfloat16 bias
     e = (e - 127) % 0b1_0000_0000
@@ -87,23 +99,50 @@ def encode_as_e5m2_round_up(t: torch.Tensor) -> torch.Tensor:
     e = torch.where(overflow, e + 1, e)
     m = torch.where(overflow, 0, m)
     # Compose the result
-    return compose_e5m2(s, e, m)
+    result = compose_e5m2(s, e, m)
+    # Set zero values
+    return torch.where(is_zero, 0, result)
 
 def encode_as_e5m2_stochastic(t: torch.Tensor) -> torch.Tensor:
     assert t.dtype == torch.int32
     
-    # Encode using truncation and round up methods
-    truncated = encode_as_e5m2_trunc(t)
-    rounded_up = encode_as_e5m2_round_up(t)
+    s, e, m = decompose_16bit(t)
+    
+    # Handle zero values
+    is_zero = (e == 0) & (m == 0)
+    
+    # Quantize to e5m2
+    e = (e - 127) % 0b1_0000_0000  # Subtract bfloat16 bias
+    e = (e + 15) % 0b1_00_000  # Add e5m2 bias
+    
+    # Calculate the distance to the next representable number
+    distance = m & 0b11111  # Last 5 bits of mantissa
+    
+    # Calculate probability of rounding up
+    prob_round_up = distance.float() / 32.0
     
     # Generate random values for stochastic rounding
     random_values = torch.rand_like(t, dtype=torch.float32)
     
-    # Perform stochastic rounding
-    # If random value is less than 0.5, use truncated value, otherwise use rounded up value
-    result = torch.where(random_values < 0.5, truncated, rounded_up)
+    # Determine whether to round up or truncate
+    round_up = random_values < prob_round_up
     
-    return result
+    # Perform rounding
+    m_truncated = m >> 5
+    m_rounded_up = m_truncated + 1
+    
+    m = torch.where(round_up, m_rounded_up, m_truncated)
+    
+    # Handle overflow
+    overflow = m == 0b100
+    e = torch.where(overflow, e + 1, e)
+    m = torch.where(overflow, 0, m)
+    
+    # Compose the result
+    result = compose_e5m2(s, e, m)
+    
+    # Set zero values
+    return torch.where(is_zero, 0, result)
 
 def bfloat16_to_fp8(t: torch.Tensor, mantissa_bits: int, rounding: str = 'trunc') -> torch.Tensor:
     assert t.dtype == torch.bfloat16
@@ -172,12 +211,7 @@ def undo_int8_fp8(
         out = torch.zeros_like(fp8_tensor, dtype=torch.bfloat16)
 
     if n_mantissa == 2:
-        # Convert uint8 to int32 for decoding
-        fp8_int = fp8_tensor.to(torch.int32)
-        # Decode E5M2 format
-        bfloat16_bits = decode_from_e5m2(fp8_int)
-        # Convert bits to bfloat16
-        out = bits_to_bfloat16(bfloat16_bits)
+        out = fp8_to_bfloat16(fp8_tensor, n_mantissa)
     else:
         # TODO: Implement E4M3 decoding if needed
         raise NotImplementedError("E4M3 decoding not implemented yet")
