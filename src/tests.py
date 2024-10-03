@@ -85,8 +85,8 @@ def test_round(test_case: str, n_mantissa: int, start_value: int, end_value):
 [
     ("e5m2 positive", 2, e5m2["0"], e5m2["largest_normal"]),
     ("e5m2 negative", 2, e5m2["-0"] + 1, e5m2["-largest_normal"]-1),
-    # ("e4m3 positive", 3, e4m3["0"], e4m3["largest_normal_ext"]),
-    # ("e4m3 negative", 3, e4m3["-0"] + 1, e4m3["-largest_normal_ext"]),
+    ("e4m3 positive", 3, e4m3["0"], e4m3["largest_normal_ext"]),
+    ("e4m3 negative", 3, e4m3["-0"] + 1, e4m3["-largest_normal_ext"]),
 ])
 def test_lossless_quantization_cases(test_case, n_mantissa, start_bin, max_bin):
 
@@ -108,8 +108,8 @@ def test_lossless_quantization_cases(test_case, n_mantissa, start_bin, max_bin):
 [
     ("e5m2 clamp if > largest positive", 2, e5m2["largest_normal"], 1, e5m2["largest_normal"]),
     ("e5m2 clamp if < smallest negative", 2, e5m2["-largest_normal"], -1, e5m2["-largest_normal"]),
-    # ("e4m3 clamp if > largest positive", 3, e4m3["largest_normal"], 1, e4m3["largest_normal"]),
-    # ("e4m3 clamp if < smallest negative", 3, e4m3["-largest_normal"], -1, e4m3["-largest_normal"]),
+    ("e4m3 clamp if > largest positive", 3, e4m3["largest_normal"], 1, e4m3["largest_normal"]),
+    ("e4m3 clamp if < smallest negative", 3, e4m3["-largest_normal"], -1, e4m3["-largest_normal"]),
 ])
 def test_round_special(test_case: str, n_mantissa, num, offset, expected):
     fp8_tensor = torch.tensor(num, dtype=torch.uint8)
@@ -120,8 +120,7 @@ def test_round_special(test_case: str, n_mantissa, num, offset, expected):
 
     assert chopped_fp8 == expected_fp8
 
-# @pytest.mark.parametrize("n_mantissa", [ 2, 3 ])
-@pytest.mark.parametrize("n_mantissa", [ 2 ])
+@pytest.mark.parametrize("n_mantissa", [ 2, 3 ])
 def test_avg(n_mantissa):
     for i in range(100):
         input = torch.rand((1024, 1024), dtype=torch.bfloat16)
