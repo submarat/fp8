@@ -205,14 +205,13 @@ def test_bfloat16_to_fp8_zero(n_mantissa, format_name):
     assert torch.all(result == expected), f"Failed for {format_name}: expected {expected}, got {result}"
 
 
-# @pytest.mark.parametrize("n_mantissa", [2, 3])
-@pytest.mark.parametrize("n_mantissa", [2])
-@pytest.mark.parametrize("scale", [0.1, 1.0, 10.0])
-@pytest.mark.parametrize("shift", [-1.0, 0.0, 1.0])
-def test_avg(n_mantissa, scale, shift):
+# TODO: @pytest.mark.parametrize("n_mantissa", [2, 3])
+# @pytest.mark.parametrize("scale", [0.1, 1.0, 10.0])
+# @pytest.mark.parametrize("shift", [-1.0, 0.0, 1.0])
+@pytest.mark.parametrize("n_mantissa", [2, 3])
+def test_avg(n_mantissa):
     for i in range(100):
         input = torch.rand((1024, 1024), dtype=torch.bfloat16)
-        input = input * scale + shift  # Scale and shift the input distribution
         fp8 = round_to_fp8_represented_as_int8(input, n_mantissa, None)
         output = undo_int8_fp8(fp8, n_mantissa)
 

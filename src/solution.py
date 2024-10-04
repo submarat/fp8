@@ -19,13 +19,13 @@ def bits_to_bfloat16(x: torch.Tensor) -> torch.Tensor:
 
 # Compositions functions for bfloat16, e4m3, e5m2
 def compose_16bit(sign: torch.Tensor, exponent: torch.Tensor, mantissa: torch.Tensor) -> torch.Tensor:
-    return (sign << 15) + (exponent << 7) + mantissa
+    return (sign << 15) | (exponent << 7) | mantissa
 
 def compose_e4m3(sign: torch.Tensor, exponent: torch.Tensor, mantissa: torch.Tensor) -> torch.Tensor:
-    return (sign << 7) + (exponent << 3) + mantissa
+    return (sign << 7) | (exponent << 3) | mantissa
 
 def compose_e5m2(sign: torch.Tensor, exponent: torch.Tensor, mantissa: torch.Tensor) -> torch.Tensor:
-    return (sign << 7) + (exponent << 2) + mantissa
+    return (sign << 7) | (exponent << 2) | mantissa
 
 
 # Decomposition functions for bfloat16, e4m3, e5m2
@@ -53,29 +53,38 @@ def decompose_8bit_e5m2(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, to
 def decode_from_e5m2(encoded: torch.Tensor) -> torch.Tensor:
     assert encoded.dtype == torch.int32
     s, e, m = decompose_8bit_e5m2(encoded)
-    # Handle zero
+    
+    # Handle special cases
     is_zero = (e == 0) & (m == 0)
-    # Update exponent
-    e = e + (127 - 15) % 0b1_0000_0000
+    is_inf = (e == 31) & (m == 0)
+    is_nan = (e == 31) & (m != 0)
+    
+    # Update exponent for normal numbers
+    e_adjusted = torch.where(e != 0, e + (127 - 15), 0)
+    
     # Expand mantissa
-    m = m << 5
+    m_expanded = m << 5
+    
     # Compose the result
-    result = (s << 15) + (e << 7) + m
-    # Set zero values
-    return torch.where(is_zero, 0, result)
+    result = compose_16bit(s, e_adjusted, m_expanded)
+    
+    # Handle special cases
+    result = torch.where(is_zero, s << 15, result)  # Signed zero
+    result = torch.where(is_inf, (s << 15) | (0xFF << 7), result)  # Infinity
+    result = torch.where(is_nan, (s << 15) | (0xFF << 7) | 1, result)  # NaN
+    
+    return result
 
 def decode_from_e4m3(fp8_int: torch.Tensor) -> torch.Tensor:
     # Extract sign, exponent, and mantissa
-    s = (fp8_int >> 7) & 0b1
-    e = (fp8_int >> 3) & 0b1111
-    m = fp8_int & 0b111
+    s, e, m = decompose_8bit_e4m3(fp8_int)
 
     # Handle special cases
     is_zero = (e == 0) & (m == 0)
     is_inf = (e == 15) & (m == 0)
     is_nan = (e == 15) & (m != 0)
 
-    # Adjust exponent and mantissa
+    # Adjust exponent and mantissa for normal numbers
     e_adjusted = torch.where(e != 0, e + 127 - 7, 0)
     m_adjusted = torch.where(e != 0, m | 0b100, m)
 
@@ -83,58 +92,14 @@ def decode_from_e4m3(fp8_int: torch.Tensor) -> torch.Tensor:
     m_shifted = m_adjusted << 4
 
     # Compose bfloat16 bits
-    bfloat16_bits = (s << 15) | (e_adjusted << 7) | m_shifted
+    result = compose_16bit(s, e_adjusted, m_shifted)
 
     # Handle special cases
-    bfloat16_bits = torch.where(is_zero, s << 15, bfloat16_bits)
-    bfloat16_bits = torch.where(is_inf, (s << 15) | (0xFF << 7), bfloat16_bits)
-    bfloat16_bits = torch.where(is_nan, (s << 15) | (0xFF << 7) | 1, bfloat16_bits)
+    result = torch.where(is_zero, s << 15, result)  # Signed zero
+    result = torch.where(is_inf, (s << 15) | (0xFF << 7), result)  # Infinity
+    result = torch.where(is_nan, (s << 15) | (0xFF << 7) | 1, result)  # NaN
 
-    return bfloat16_bits
-def encode_as_e4m3_round_up(t: torch.Tensor) -> torch.Tensor:
-    assert t.dtype == torch.int32
-    s, e, m = decompose_16bit(t)
-    
-    # Handle zero values
-    is_zero = (e == 0) & (m == 0)
-    
-    # Quantize to e4m3
-    e = (e - 127) % 0b1_0000_0000  # Subtract bfloat16 bias
-    e = (e + 7) % 0b1_0000  # Add e4m3 bias
-    
-    # Round up mantissa
-    m = (m >> 4) + 1
-    
-    # Handle overflow
-    overflow = m == 0b1000
-    e = torch.where(overflow, e + 1, e)
-    m = torch.where(overflow, 0, m)
-    
-    # Compose the result
-    result = (s << 7) | (e << 3) | m
-    
-    # Set zero values
-    return torch.where(is_zero | is_too_small, 0, result)
-
-def encode_as_e4m3_trunc(t: torch.Tensor) -> torch.Tensor:
-    assert t.dtype == torch.int32
-    s, e, m = decompose_16bit(t)
-    
-    # Handle zero values
-    is_zero = (e == 0) & (m == 0)
-    
-    # Quantize to e4m3
-    e = (e - 127) % 0b1_0000_0000  # Subtract bfloat16 bias
-    e = (e + 7) % 0b1_0000  # Add e4m3 bias
-    
-    # Truncate mantissa
-    m = m >> 4
-    
-    # Compose the result
-    result = (s << 7) | (e << 3) | m
-    
-    # Set zero values
-    return torch.where(is_zero, 0, result)
+    return result
 
 def encode_as_e5m2(t: torch.Tensor, mode: str = 'trunc') -> torch.Tensor:
     assert t.dtype == torch.bfloat16
