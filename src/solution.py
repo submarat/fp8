@@ -94,46 +94,22 @@ def round_to_fp8_represented_as_int8(
     if out is None:
         out = torch.empty_like(t, dtype=torch.uint8)
 
-    # Define constants based on n_mantissa
-    if n_mantissa == 2:
-        exponent_bits = 5
-        max_exponent = 15
-        bias = 15
-    else:  # n_mantissa == 3
-        exponent_bits = 4
-        max_exponent = 7
-        bias = 7
+    chop = bfloat16_to_fp8(t, n_mantissa)
+    chop_bfloat16 = fp8_to_bfloat16(chop, n_mantissa)
+    chop_next = chop + chop.sign().to(torch.uint8)
 
-    # Extract sign, exponent, and mantissa
-    sign = torch.sign(t)
-    abs_t = torch.abs(t).to(torch.float32)  # Cast to float32 for higher precision in calculations
-    exponent = torch.floor(torch.log2(abs_t)).to(torch.int32) + bias
-    mantissa = ((abs_t / (2.0 ** (exponent - bias))) - 1.0).to(torch.bfloat16)
+    chop_bfloat16 = bfloat16_to_fp8(chop, n_mantissa)
+    chop_next_bfloat16 = fp8_to_bfloat16(chop_next, n_mantissa)
 
-    # Handle subnormal numbers
-    subnormal_mask = exponent <= 0
-    exponent[subnormal_mask] = 0
-    mantissa[subnormal_mask] = (abs_t[subnormal_mask] / (2.0 ** (-bias + 1))).to(torch.bfloat16)
+    intervals = abs(chop_bfloat16 - t)
+    gap = abs(chop_bfloat16 - chop_next_bfloat16)
 
-    # Clamp exponent
-    exponent = torch.clamp(exponent, 0, max_exponent)
+    # Probability of rounding down to x1
+    probs_chop = intervals/gap
     
-    # Stochastic rounding for mantissa
-    mantissa_scaled = mantissa * (2 ** n_mantissa)
-    mantissa_floor = torch.floor(mantissa_scaled)
-    mantissa_prob = mantissa_scaled - mantissa_floor
-    random_values = torch.rand_like(mantissa_prob)
-    mantissa_rounded = mantissa_floor + (random_values < mantissa_prob).to(torch.float32)
-    
-    # Combine components
-    result = (sign < 0).to(torch.uint8) << 7
-    result |= (exponent.to(torch.uint8) << n_mantissa)
-    result |= mantissa_rounded.to(torch.uint8)
-    
-    # Handle special cases
-    result[torch.isnan(t)] = 0b01111111 if n_mantissa == 2 else 0b01111111
-    result[torch.isinf(t) & (t > 0)] = 0b01111100 if n_mantissa == 2 else 0b01111000
-    result[torch.isinf(t) & (t < 0)] = 0b11111100 if n_mantissa == 2 else 0b11111000
+    random_numbers = torch.rand_like(probs_chop)
+    chop_mask = (random_numbers > probs_chop)
+    result = torch.where(chop_mask, chop, chop_next)
     
     out.copy_(result)
     return out
