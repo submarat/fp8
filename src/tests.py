@@ -60,8 +60,8 @@ nan_values = {
 [
     ("e5m2 positive", 2, e5m2["0"], e5m2["largest_normal"]),
     ("e5m2 negative", 2, e5m2["-largest_normal"], e5m2["-0"]),
-    # ("e4m3 positive", 3, e4m3["0"], e4m3["largest_normal_ext"]),
-    # ("e4m3 negative", 3, e4m3["-largest_normal_ext"], e4m3["-0"]),
+    ("e4m3 positive", 3, e4m3["0"], e4m3["largest_normal_ext"]),
+    ("e4m3 negative", 3, e4m3["-largest_normal_ext"], e4m3["-0"]),
 ])
 def test_round(test_case: str, n_mantissa: int, start_value: int, end_value):
     prev = start_value

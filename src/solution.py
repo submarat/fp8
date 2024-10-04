@@ -10,7 +10,7 @@ def bfloat16_to_fp8(t: torch.Tensor, n_mantissa: int):
         bias = 15
     else:  # n_mantissa == 3
         exponent_bits = 4
-        max_exponent = 7
+        max_exponent = 16
         bias = 7
 
     # Extract sign, exponent, and mantissa
@@ -79,9 +79,7 @@ def fp8_to_bfloat16(fp8_tensor: torch.Tensor, n_mantissa: int):
         result[(fp8_tensor & 0b01111110) == 0b01111110] = float('nan')
         result[(fp8_tensor & 0b01111111) == 0b01111111] = float('nan')
     else:  # n_mantissa == 3
-        result[(fp8_tensor & 0b01111000) == 0b01111000] = float('inf')
-        result[(fp8_tensor & 0b11111000) == 0b11111000] = float('-inf')
-        result[(fp8_tensor & 0b01111000) == 0b01111000] = float('nan')
+        result[(fp8_tensor & 0b01111111) == 0b11111000] = float('nan')
     return result
 
 # @torch.jit.script
