@@ -60,8 +60,8 @@ nan_values = {
 [
     ("e5m2 positive", 2, e5m2["0"], e5m2["largest_normal"]),
     ("e5m2 negative", 2, e5m2["-largest_normal"], e5m2["-0"]),
-    # ("e4m3 positive", 3, e4m3["0"], e4m3["largest_normal_ext"]),
-    # ("e4m3 negative", 3, e4m3["-largest_normal_ext"], e4m3["-0"]),
+    ("e4m3 positive", 3, e4m3["0"], e4m3["largest_normal_ext"]),
+    ("e4m3 negative", 3, e4m3["-largest_normal_ext"], e4m3["-0"]),
 ])
 def test_round(test_case: str, n_mantissa: int, start_value: int, end_value):
     prev = start_value
@@ -77,9 +77,17 @@ def test_round(test_case: str, n_mantissa: int, start_value: int, end_value):
         # test that we correctly round up and down
         chopped = bfloat16_to_fp8(mid_point, n_mantissa)
 
-        assert chopped == prev_tensor
+        assert chopped == prev_tensor, f"Failed for {test_case}: input {mid_point} expected {prev_tensor}, got {chopped}"
 
         prev = curr
+
+def test_failing_input():
+    input_value = 1.9073486328125e-05
+    n_mantissa = 2  # for e5m2
+    input_tensor = torch.tensor([input_value], dtype=torch.bfloat16)
+    result = bfloat16_to_fp8(input_tensor, n_mantissa)
+    expected = torch.tensor([0], dtype=torch.uint8)
+    assert torch.all(result == expected), f"Failed for e5m2 positive: input {input_value} expected {expected}, got {result}"
 
 @pytest.mark.parametrize("test_case, n_mantissa, start_bin, max_bin",
 [
@@ -148,6 +156,42 @@ def test_bfloat16_to_fp8_subnormals(test_case, n_mantissa, input_value, expected
     expected = torch.tensor([expected_output], dtype=torch.uint8)
     
     assert torch.all(result == expected), f"Failed for {test_case}: expected {expected}, got {result}"
+
+@pytest.mark.parametrize("test_case, n_mantissa, input_value, expected_output", [
+    ("e5m2 positive infinity", 2, float('inf'), 0b01111100),
+    ("e5m2 negative infinity", 2, float('-inf'), 0b11111100),
+    ("e5m2 NaN", 2, float('nan'), 0b01111111),
+    ("e4m3 positive infinity", 3, float('inf'), 0b01111000),
+    ("e4m3 negative infinity", 3, float('-inf'), 0b11111000),
+    ("e4m3 NaN", 3, float('nan'), 0b01111111),
+])
+def test_bfloat16_to_fp8_inf_nan(test_case, n_mantissa, input_value, expected_output):
+    input_tensor = torch.tensor([input_value], dtype=torch.bfloat16)
+    result = bfloat16_to_fp8(input_tensor, n_mantissa)
+    expected = torch.tensor([expected_output], dtype=torch.uint8)
+    
+    if torch.isnan(input_tensor[0]):
+        assert result[0] & 0b01111000 == 0b01111000, f"Failed for {test_case}: NaN not correctly represented"
+    else:
+        assert torch.all(result == expected), f"Failed for {test_case}: expected {expected}, got {result}"
+
+@pytest.mark.parametrize("n_mantissa", [2, 3])
+def test_fp8_to_bfloat16_inf_nan(n_mantissa):
+    # Test positive infinity
+    pos_inf_fp8 = torch.tensor([0b01111000 if n_mantissa == 3 else 0b01111100], dtype=torch.uint8)
+    pos_inf_result = fp8_to_bfloat16(pos_inf_fp8, n_mantissa)
+    assert torch.isinf(pos_inf_result) and pos_inf_result > 0, f"Failed for positive infinity with {n_mantissa} mantissa bits"
+
+    # Test negative infinity
+    neg_inf_fp8 = torch.tensor([0b11111000 if n_mantissa == 3 else 0b11111100], dtype=torch.uint8)
+    neg_inf_result = fp8_to_bfloat16(neg_inf_fp8, n_mantissa)
+    assert torch.isinf(neg_inf_result) and neg_inf_result < 0, f"Failed for negative infinity with {n_mantissa} mantissa bits"
+
+    # Test NaN
+    nan_fp8 = torch.tensor([0b01111111], dtype=torch.uint8)
+    nan_result = fp8_to_bfloat16(nan_fp8, n_mantissa)
+    assert torch.isnan(nan_result), f"Failed for NaN with {n_mantissa} mantissa bits"
+
 
 @pytest.mark.parametrize("n_mantissa, format_name", [
     (2, "e5m2"),
