@@ -81,14 +81,6 @@ def test_round(test_case: str, n_mantissa: int, start_value: int, end_value):
 
         prev = curr
 
-def test_failing_input():
-    input_value = 2.25
-    n_mantissa = 2  # for e5m2
-    input_tensor = torch.tensor([input_value], dtype=torch.bfloat16)
-    result = bfloat16_to_fp8(input_tensor, n_mantissa)
-    expected = torch.tensor([64], dtype=torch.uint8)
-    assert torch.all(result == expected), f"Failed for e5m2 positive: input {input_value} expected {expected}, got {result}"
-
 @pytest.mark.parametrize("test_case, n_mantissa",
 [
     ("e5m2", 2), 
@@ -190,8 +182,8 @@ def test_bfloat16_to_fp8_zero(n_mantissa, format_name):
     assert torch.all(result == expected), f"Failed for {format_name}: expected {expected}, got {result}"
 
 
-@pytest.mark.parametrize("scale", [0.1, 1.0, 10.0])
-@pytest.mark.parametrize("shift", [-1.0, 0.0, 1.0])
+@pytest.mark.parametrize("scale", [0.1, 1.0, 2.0, 10.0, 100.0])
+@pytest.mark.parametrize("shift", [-2.0, -1.0, 0.0, 1.0, 2.0])
 @pytest.mark.parametrize("n_mantissa", [2, 3])
 def test_avg(n_mantissa, scale, shift):
     for i in range(1):

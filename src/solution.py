@@ -80,7 +80,7 @@ def fp8_to_bfloat16(fp8_tensor: torch.Tensor, n_mantissa: int):
         result[(fp8_tensor & 0b01111111) == 0b11111000] = float('nan')
     return result
 
-# @torch.jit.script
+@torch.jit.script
 def round_to_fp8_represented_as_int8(
         t: torch.Tensor,
         n_mantissa: int,
@@ -112,7 +112,7 @@ def round_to_fp8_represented_as_int8(
     out.copy_(result)
     return out
 
-# @torch.jit.script
+@torch.jit.script
 def undo_int8_fp8(
         fp8_tensor: torch.Tensor,
         n_mantissa: int,
