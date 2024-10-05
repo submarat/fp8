@@ -89,28 +89,23 @@ def test_failing_input():
     expected = torch.tensor([64], dtype=torch.uint8)
     assert torch.all(result == expected), f"Failed for e5m2 positive: input {input_value} expected {expected}, got {result}"
 
-@pytest.mark.parametrize("test_case, n_mantissa, start_bin, max_bin",
+@pytest.mark.parametrize("test_case, n_mantissa",
 [
-    ("e5m2 positive", 2, e5m2["0"], e5m2["largest_normal"]),
-    ("e5m2 negative", 2, e5m2["-0"] + 1, e5m2["-largest_normal"]-1),
-    ("e4m3 positive", 3, e4m3["0"], e4m3["largest_normal_ext"]),
-    ("e4m3 negative", 3, e4m3["-0"] + 1, e4m3["-largest_normal_ext"]),
+    ("e5m2", 2), 
+    ("e4m3", 3), 
 ])
-def test_lossless_quantization_cases(test_case, n_mantissa, start_bin, max_bin):
+def test_lossless_quantization_cases(test_case, n_mantissa):
 
-    def generate_input(start_bin, end_bin, shape: tuple = (1, 1)) -> torch.Tensor:
-        range_values = torch.arange(start_bin, end_bin, dtype=torch.uint8)
-        num_elements = torch.prod(torch.tensor(shape)).item()
-        repeated_values = range_values.repeat((num_elements // range_values.size(0)) + 1)[:num_elements]
-        result_tensor = repeated_values.view(shape)
-        return result_tensor.to(dtype=torch.uint8)
-    
-    input = generate_input(start_bin, max_bin)
+    input = torch.arange(0, 256, dtype=torch.uint8)
 
-    quantized_bfloat16 = undo_int8_fp8(input, n_mantissa, None)
-    quantized_fp8 = round_to_fp8_represented_as_int8(quantized_bfloat16, n_mantissa, None)
+    quantized_bfloat16 = undo_int8_fp8(input, n_mantissa)
+    quantized_fp8 = round_to_fp8_represented_as_int8(quantized_bfloat16, n_mantissa)
 
-    torch.testing.assert_close(input, quantized_fp8.to(torch.uint8))
+    isnan = quantized_bfloat16.isnan()
+    isinf = quantized_bfloat16.isinf()
+    mask = ~(isnan | isinf)
+
+    torch.testing.assert_close(input[mask], quantized_fp8[mask])
 
 @pytest.mark.parametrize("test_case, n_mantissa, num, offset, expected",
 [

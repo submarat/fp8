@@ -14,11 +14,10 @@ def bfloat16_to_fp8(t: torch.Tensor, n_mantissa: int):
         bias = 7
 
     # Extract sign, exponent, and mantissa
-    sign = torch.sign(t)
+    sign = torch.signbit(t).to(torch.uint8)
     abs_t = torch.abs(t).to(torch.float32)  # Cast to float32 for higher precision in calculations
     exponent = torch.floor(torch.log2(abs_t)).to(torch.int32)
     mantissa = ((abs_t / (2.0 ** (exponent))) - 1.0).to(torch.bfloat16)
-    # import pdb; pdb.set_trace()
 
     # Handle subnormal numbers
     subnormal_mask = (exponent + bias) <= 0
@@ -37,7 +36,7 @@ def bfloat16_to_fp8(t: torch.Tensor, n_mantissa: int):
     mantissa_rounded = mantissa_floor
     
     # Combine components
-    result = (sign < 0).to(torch.uint8) << 7
+    result = (sign << 7)
     result |= (exponent.to(torch.uint8) << n_mantissa)
     result |= mantissa_rounded.to(torch.uint8)
     
@@ -70,7 +69,6 @@ def fp8_to_bfloat16(fp8_tensor: torch.Tensor, n_mantissa: int):
     result[subnormal_mask] = sign[subnormal_mask] * (mantissa[subnormal_mask].to(torch.float32) / (2 ** n_mantissa)) * (2.0 ** (-bias + 1))
     
     # Handle special cases
-    result[fp8_tensor == 0] = 0.0
     if n_mantissa == 2:
         result[(fp8_tensor & 0b01111100) == 0b01111100] = float('inf')
         result[(fp8_tensor & 0b11111100) == 0b11111100] = float('-inf')
@@ -98,7 +96,7 @@ def round_to_fp8_represented_as_int8(
     chop_bfloat16 = fp8_to_bfloat16(chop, n_mantissa)
     chop_next = chop + chop.sign().to(torch.uint8)
 
-    chop_bfloat16 = bfloat16_to_fp8(chop, n_mantissa)
+    chop_bfloat16 = fp8_to_bfloat16(chop, n_mantissa)
     chop_next_bfloat16 = fp8_to_bfloat16(chop_next, n_mantissa)
 
     intervals = abs(chop_bfloat16 - t)
@@ -108,7 +106,7 @@ def round_to_fp8_represented_as_int8(
     probs_chop = intervals/gap
     
     random_numbers = torch.rand_like(probs_chop)
-    chop_mask = (random_numbers > probs_chop)
+    chop_mask = (random_numbers > probs_chop) & t.isfinite()
     result = torch.where(chop_mask, chop, chop_next)
     
     out.copy_(result)
