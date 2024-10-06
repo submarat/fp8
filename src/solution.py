@@ -69,7 +69,8 @@ def fp8_to_bfloat16(fp8_tensor: torch.Tensor, n_mantissa: int):
         result[(fp8_tensor & 0b01111110) == 0b01111110] = float('nan')
         result[(fp8_tensor & 0b01111111) == 0b01111111] = float('nan')
     else:  # n_mantissa == 3
-        result[(fp8_tensor & 0b01111111) == 0b11111000] = float('nan')
+        result[(fp8_tensor & 0b1111111) == 0b1111111] = float('nan')
+        result[(fp8_tensor & 0b1111111) == 0b1111111] = float('nan')
     return result
 
 # @torch.jit.script

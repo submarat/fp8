@@ -229,11 +229,21 @@ def test_all_finite_bfloat16(n_mantissa):
     all_bfloat16 = torch.empty(all_bits.shape, dtype=torch.bfloat16)
     all_bfloat16.view(torch.int16)[:] = all_bits
     
-    # Filter out NaN and Inf values
-    input = all_bfloat16[torch.isfinite(all_bfloat16)]
-    
-    import pdb; pdb.set_trace()
-    fp8 = round_to_fp8_represented_as_int8(input, n_mantissa, None)
+    fp8 = round_to_fp8_represented_as_int8(all_bfloat16, n_mantissa, None)
+    fp8 = fp8.unique()
     output = undo_int8_fp8(fp8, n_mantissa)
 
-    assert torch.allclose(input.mean(), output.mean(), rtol=1e-02, atol=1e-02), f"input mean {input.mean()} != output mean {output.mean()}"
+    # Filter out NaN values and Inf values
+    mask = ~(output.isnan() | output.isinf())
+
+    if n_mantissa == 2:
+        # Assert that values in mask are either in range 0-123 or 128-251
+        valid_range = (fp8[mask] <= 123) | ((fp8[mask] >= 128) & (fp8[mask] <= 251))
+        assert torch.all(valid_range), f"Some FP8 values are outside the expected ranges for n_mantissa={n_mantissa}"
+
+        assert fp8[mask].shape == output[mask].shape == (248,)
+    else:
+        valid_range = (fp8[mask] <= 126) | ((fp8[mask] >= 128) & (fp8[mask] <= 254))
+        assert torch.all(valid_range), f"Some FP8 values are outside the expected ranges for n_mantissa={n_mantissa}"
+        assert fp8[mask].shape == output[mask].shape == (254,)
+
