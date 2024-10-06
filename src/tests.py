@@ -183,7 +183,7 @@ def test_bfloat16_to_fp8_zero(n_mantissa, format_name):
 
 
 @pytest.mark.parametrize("scale", [0.1, 1.0, 2.0, 10.0, 100.0])
-@pytest.mark.parametrize("shift", [-2.0, -1.0, 0.0, 1.0, 2.0])
+@pytest.mark.parametrize("shift", [-2.0, -1.0, -1.5259e-05, 0.0, 1.0, 1.5259e-05, 2.0])
 @pytest.mark.parametrize("n_mantissa", [2, 3])
 def test_avg(n_mantissa, scale, shift):
     for i in range(1):
@@ -193,3 +193,12 @@ def test_avg(n_mantissa, scale, shift):
         output = undo_int8_fp8(fp8, n_mantissa)
 
         assert torch.allclose(input.mean(), output.mean(), rtol=1e-02, atol=1e-02), f"input mean {input.mean()} != output mean {output.mean()}"
+
+@pytest.mark.parametrize("n_mantissa", [2, 3])
+def test_with_subnormal_bfloat16(n_mantissa):
+    x = 2**(- 126 - 7)
+    input = torch.tensor((x), dtype=torch.bfloat16)
+    fp8 = round_to_fp8_represented_as_int8(input, n_mantissa, None)
+    output = undo_int8_fp8(fp8, n_mantissa)
+
+    assert torch.allclose(input.mean(), output.mean(), rtol=1e-02, atol=1e-02), f"input mean {input.mean()} != output mean {output.mean()}"
