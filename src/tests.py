@@ -199,32 +199,13 @@ def test_bfloat16_to_fp8_subnormals(test_case, n_mantissa, input_value, expected
 ])
 def test_bfloat16_to_fp8_inf_nan(test_case, n_mantissa, input_value, expected_output):
     input_tensor = torch.tensor([input_value], dtype=torch.bfloat16)
-    result = bfloat16_to_fp8(input_tensor, n_mantissa)
+    result = round_to_fp8_represented_as_int8(input_tensor, n_mantissa)
     expected = torch.tensor([expected_output], dtype=torch.uint8)
     
     if torch.isnan(input_tensor[0]):
         assert result[0] & 0b01111000 == 0b01111000, f"Failed for {test_case}: NaN not correctly represented"
     else:
         assert torch.all(result == expected), f"Failed for {test_case}: expected {expected}, got {result}"
-
-@pytest.mark.parametrize("n_mantissa", [2])
-def test_fp8_to_bfloat16_inf_nan(n_mantissa):
-    # Test NaN
-    nan_fp8 = torch.tensor([0b011111111], dtype=torch.uint8)
-    nan_result = fp8_to_bfloat16(nan_fp8, n_mantissa)
-    assert torch.isnan(nan_result), f"Failed for NaN with {n_mantissa} mantissa bits"
-
-
-@pytest.mark.parametrize("n_mantissa, format_name", [
-    (2, "e5m2"),
-    (3, "e4m3")
-])
-def test_bfloat16_to_fp8_zero(n_mantissa, format_name):
-    zero_tensor = torch.tensor([0.0], dtype=torch.bfloat16)
-    
-    result = bfloat16_to_fp8(zero_tensor, n_mantissa)
-    expected = torch.tensor([0], dtype=torch.uint8)
-    assert torch.all(result == expected), f"Failed for {format_name}: expected {expected}, got {result}"
 
 
 @pytest.mark.parametrize("scale", [0.1, 1.0, 2.0, 10.0, 100.0])

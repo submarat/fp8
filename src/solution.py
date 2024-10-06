@@ -36,11 +36,6 @@ def bfloat16_to_fp8(t: torch.Tensor, n_mantissa: int):
     result = (sign << 7)
     result |= (exponent.to(torch.uint8) << n_mantissa)
     result |= mantissa_rounded.to(torch.uint8)
-
-    # Handle special cases
-    result[torch.isnan(t)] = 0b01111111 if n_mantissa == 2 else 0b01111111
-    result[torch.isinf(t) & (t > 0)] = 0b01111100 if n_mantissa == 2 else 0b01111000
-    result[torch.isinf(t) & (t < 0)] = 0b11111100 if n_mantissa == 2 else 0b11111000
     
     return result
 
@@ -64,7 +59,7 @@ def fp8_to_bfloat16(fp8_tensor: torch.Tensor, n_mantissa: int):
     # Handle subnormal numbers
     subnormal_mask = exponent == 0
     result[subnormal_mask] = sign[subnormal_mask] * (mantissa[subnormal_mask].to(torch.float32) / (2 ** n_mantissa)) * (2.0 ** (-bias + 1))
-    
+
     # Handle special cases
     if n_mantissa == 2:
         result[(fp8_tensor & 0b01111100) == 0b01111100] = float('inf')
@@ -108,11 +103,16 @@ def round_to_fp8_represented_as_int8(
 
     # Clamp to min and max of e5m2 and e4m3 ranges
     if n_mantissa == 2:
-        result[(t > 57344)] = 0b0_11110_11
-        result[(t < -57344)] = 0b1_11110_11
+        result[~t.isinf() & (t > 57344)] = 0b0_11110_11
+        result[~t.isinf() & (t < -57344)] = 0b1_11110_11
     if n_mantissa == 3:
-        result[(t > 448)] = 0b0_1111_110
-        result[(t < -448)] = 0b1_1111_110
+        result[~t.isinf() & (t > 448)] = 0b0_1111_110
+        result[~t.isinf() & (t < -448)] = 0b1_1111_110
+
+    # Handle special cases
+    result[torch.isnan(t)] = 0b01111111 if n_mantissa == 2 else 0b01111111
+    result[torch.isinf(t) & (t > 0)] = 0b01111100 if n_mantissa == 2 else 0b01111000
+    result[torch.isinf(t) & (t < 0)] = 0b11111100 if n_mantissa == 2 else 0b11111000
     
     out.copy_(result)
     return out
