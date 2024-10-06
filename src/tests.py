@@ -67,39 +67,6 @@ def bits_to_bfloat16(x: torch.Tensor) -> torch.Tensor:
     x = x.to(dtype=torch.uint16)
     return prims.view_element_type(x, torch.bfloat16)
 
-# Compositions functions for bfloat16, e4m3, e5m2
-def compose_16bit(sign: torch.Tensor, exponent: torch.Tensor, mantissa: torch.Tensor) -> torch.Tensor:
-    return (sign << 15) | (exponent << 7) | mantissa
-
-def compose_e4m3(sign: torch.Tensor, exponent: torch.Tensor, mantissa: torch.Tensor) -> torch.Tensor:
-    return (sign << 7) | (exponent << 3) | mantissa
-
-def compose_e5m2(sign: torch.Tensor, exponent: torch.Tensor, mantissa: torch.Tensor) -> torch.Tensor:
-    return (sign << 7) | (exponent << 2) | mantissa
-
-
-# Decomposition functions for bfloat16, e4m3, e5m2
-def decompose_16bit(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert x.dtype == torch.int32
-    sign = (x & 0b1000_0000_0000_0000) >> 15
-    exponent = (x & 0b0111_1111_1000_0000) >> 7
-    mantissa = (x & 0b0000_0000_0111_1111)
-    return sign, exponent, mantissa
-
-def decompose_8bit_e4m3(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert x.dtype == torch.int32
-    sign =     (x & 0b1000_0000) >> 7
-    exponent = (x & 0b0111_1000) >> 3
-    mantissa = (x & 0b0000_0111)
-    return sign, exponent, mantissa
-
-def decompose_8bit_e5m2(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert x.dtype == torch.int32
-    sign =     (x & 0b1000_0000) >> 7
-    exponent = (x & 0b0111_1100) >> 2
-    mantissa = (x & 0b0000_0011)
-    return sign, exponent, mantissa
-
 @pytest.mark.parametrize("test_case, n_mantissa, start_value, end_value",
 [
     ("e5m2 positive", 2, e5m2["0"], e5m2["largest_normal"]),
@@ -241,9 +208,21 @@ def test_all_finite_bfloat16(n_mantissa):
         valid_range = (fp8[mask] <= 123) | ((fp8[mask] >= 128) & (fp8[mask] <= 251))
         assert torch.all(valid_range), f"Some FP8 values are outside the expected ranges for n_mantissa={n_mantissa}"
 
+        # Assert that there that all normal and subnormal values are represented
         assert fp8[mask].shape == output[mask].shape == (248,)
+
+        # Assert that NaN and Inf values are present
+        assert output.isnan().any()
+        assert output.isinf().any()
     else:
+        # Assert that values are in the right range
         valid_range = (fp8[mask] <= 126) | ((fp8[mask] >= 128) & (fp8[mask] <= 254))
         assert torch.all(valid_range), f"Some FP8 values are outside the expected ranges for n_mantissa={n_mantissa}"
+
+        # Assert that there that all normal and subnormal values are represented
         assert fp8[mask].shape == output[mask].shape == (254,)
 
+        # Assert that NaN is present
+        assert output.isnan().any()
+        # Assert that inf cannot be represented in e4m3
+        assert not output.isinf().any()

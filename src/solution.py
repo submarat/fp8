@@ -5,17 +5,15 @@ import torch
 def bfloat16_to_fp8(t: torch.Tensor, n_mantissa: int):
     # Define constants based on n_mantissa
     if n_mantissa == 2:
-        exponent_bits = 5
         max_exponent = 32
         bias = 15
     else:  # n_mantissa == 3
-        exponent_bits = 4
         max_exponent = 16
         bias = 7
 
     # Extract sign, exponent, and mantissa
     sign = torch.signbit(t).to(torch.uint8)
-    abs_t = torch.abs(t).to(torch.float32)  # Cast to float32 for higher precision in calculations
+    abs_t = torch.abs(t).to(torch.float32)  # Cast to float32 to avoid dealing with subnormals
     exponent = torch.floor(torch.log2(abs_t)).to(torch.int32)
     mantissa = ((abs_t / (2.0 ** (exponent))) - 1.0).to(torch.bfloat16)
 
@@ -73,7 +71,7 @@ def fp8_to_bfloat16(fp8_tensor: torch.Tensor, n_mantissa: int):
         result[(fp8_tensor & 0b1111111) == 0b1111111] = float('nan')
     return result
 
-# @torch.jit.script
+@torch.jit.script
 def round_to_fp8_represented_as_int8(
         t: torch.Tensor,
         n_mantissa: int,
@@ -110,7 +108,7 @@ def round_to_fp8_represented_as_int8(
         result[~t.isinf() & (t > 448)] = 0b0_1111_110
         result[~t.isinf() & (t < -448)] = 0b1_1111_110
 
-    # Handle special cases
+    # Handle special nan and inf
     result[torch.isnan(t)] = 0b01111111 if n_mantissa == 2 else 0b01111111
     result[torch.isinf(t) & (t > 0)] = 0b01111100 if n_mantissa == 2 else 0b01111000
     result[torch.isinf(t) & (t < 0)] = 0b11111100 if n_mantissa == 2 else 0b11111000
@@ -118,7 +116,7 @@ def round_to_fp8_represented_as_int8(
     out.copy_(result)
     return out
 
-# @torch.jit.script
+@torch.jit.script
 def undo_int8_fp8(
         fp8_tensor: torch.Tensor,
         n_mantissa: int,
