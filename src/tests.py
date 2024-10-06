@@ -2,6 +2,7 @@
 from src.solution import *
 
 import pytest
+import torch._prims as prims
 
 e5m2 = {
     "0":                  0b0_00000_00,
@@ -56,6 +57,49 @@ nan_values = {
     }
 }
 
+def bfloat16_to_bits(x: torch.Tensor) -> torch.Tensor:
+    assert x.dtype == torch.bfloat16
+    x = prims.view_element_type(x, torch.uint16)
+    return x.to(dtype=torch.int32)
+
+def bits_to_bfloat16(x: torch.Tensor) -> torch.Tensor:
+    assert x.dtype == torch.int32
+    x = x.to(dtype=torch.uint16)
+    return prims.view_element_type(x, torch.bfloat16)
+
+# Compositions functions for bfloat16, e4m3, e5m2
+def compose_16bit(sign: torch.Tensor, exponent: torch.Tensor, mantissa: torch.Tensor) -> torch.Tensor:
+    return (sign << 15) | (exponent << 7) | mantissa
+
+def compose_e4m3(sign: torch.Tensor, exponent: torch.Tensor, mantissa: torch.Tensor) -> torch.Tensor:
+    return (sign << 7) | (exponent << 3) | mantissa
+
+def compose_e5m2(sign: torch.Tensor, exponent: torch.Tensor, mantissa: torch.Tensor) -> torch.Tensor:
+    return (sign << 7) | (exponent << 2) | mantissa
+
+
+# Decomposition functions for bfloat16, e4m3, e5m2
+def decompose_16bit(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    assert x.dtype == torch.int32
+    sign = (x & 0b1000_0000_0000_0000) >> 15
+    exponent = (x & 0b0111_1111_1000_0000) >> 7
+    mantissa = (x & 0b0000_0000_0111_1111)
+    return sign, exponent, mantissa
+
+def decompose_8bit_e4m3(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    assert x.dtype == torch.int32
+    sign =     (x & 0b1000_0000) >> 7
+    exponent = (x & 0b0111_1000) >> 3
+    mantissa = (x & 0b0000_0111)
+    return sign, exponent, mantissa
+
+def decompose_8bit_e5m2(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    assert x.dtype == torch.int32
+    sign =     (x & 0b1000_0000) >> 7
+    exponent = (x & 0b0111_1100) >> 2
+    mantissa = (x & 0b0000_0011)
+    return sign, exponent, mantissa
+
 @pytest.mark.parametrize("test_case, n_mantissa, start_value, end_value",
 [
     ("e5m2 positive", 2, e5m2["0"], e5m2["largest_normal"]),
@@ -90,8 +134,8 @@ def test_lossless_quantization_cases(test_case, n_mantissa):
 
     input = torch.arange(0, 256, dtype=torch.uint8)
 
-    quantized_bfloat16 = undo_int8_fp8(input, n_mantissa)
-    quantized_fp8 = round_to_fp8_represented_as_int8(quantized_bfloat16, n_mantissa)
+    quantized_bfloat16 = fp8_to_bfloat16(input, n_mantissa)
+    quantized_fp8 = bfloat16_to_fp8(quantized_bfloat16, n_mantissa)
 
     isnan = quantized_bfloat16.isnan()
     isinf = quantized_bfloat16.isinf()
@@ -101,19 +145,20 @@ def test_lossless_quantization_cases(test_case, n_mantissa):
 
 @pytest.mark.parametrize("test_case, n_mantissa, num, offset, expected",
 [
-    ("e5m2 clamp if > largest positive", 2, e5m2["largest_normal"], 1, e5m2["largest_normal"]),
-    ("e5m2 clamp if < smallest negative", 2, e5m2["-largest_normal"], -1, e5m2["-largest_normal"]),
-    ("e4m3 clamp if > largest positive", 3, e4m3["largest_normal"], 1, e4m3["largest_normal"]),
-    ("e4m3 clamp if < smallest negative", 3, e4m3["-largest_normal"], -1, e4m3["-largest_normal"]),
+    ("e5m2 clamp if > largest positive", 2, e5m2["largest_normal"], 128, e5m2["largest_normal"]),
+    ("e5m2 clamp if < smallest negative", 2, e5m2["-largest_normal"], -128, e5m2["-largest_normal"]),
+    ("e4m3 clamp if > largest positive", 3, e4m3["largest_normal_ext"], 128, e4m3["largest_normal_ext"]),
+    ("e4m3 clamp if < smallest negative", 3, e4m3["-largest_normal_ext"], -128, e4m3["-largest_normal_ext"]),
 ])
 def test_clamp(test_case: str, n_mantissa, num, offset, expected):
     fp8_tensor = torch.tensor(num, dtype=torch.uint8)
     expected_fp8 = torch.tensor(expected, dtype=torch.uint8)
-    bfloat16_tensor = fp8_to_bfloat16(fp8_tensor, n_mantissa) + offset
 
-    chopped_fp8 = bfloat16_to_fp8(bfloat16_tensor, n_mantissa)
+    original = fp8_to_bfloat16(fp8_tensor, n_mantissa)
+    unclamped_bfloat16 = original + torch.tensor((offset,), dtype=torch.bfloat16)
+    rounded_fp8 = round_to_fp8_represented_as_int8(unclamped_bfloat16, n_mantissa)
 
-    assert chopped_fp8 == expected_fp8
+    assert rounded_fp8 == expected_fp8
 
 @pytest.mark.parametrize("test_case, n_mantissa, input_value, expected_output", [
     ("e5m2 subnormal 1 (smallest positive)", 2, 1.5259e-05, 0b00000001),
@@ -195,9 +240,18 @@ def test_avg(n_mantissa, scale, shift):
         assert torch.allclose(input.mean(), output.mean(), rtol=1e-02, atol=1e-02), f"input mean {input.mean()} != output mean {output.mean()}"
 
 @pytest.mark.parametrize("n_mantissa", [2, 3])
-def test_with_subnormal_bfloat16(n_mantissa):
-    x = 2**(- 126 - 7)
-    input = torch.tensor((x), dtype=torch.bfloat16)
+def test_all_finite_bfloat16(n_mantissa):
+    # Generate all possible 16-bit values
+    all_bits = torch.arange(0, 2**16, dtype=torch.int16)
+    
+    # Convert bits to bfloat16
+    all_bfloat16 = torch.empty(all_bits.shape, dtype=torch.bfloat16)
+    all_bfloat16.view(torch.int16)[:] = all_bits
+    
+    # Filter out NaN and Inf values
+    input = all_bfloat16[torch.isfinite(all_bfloat16)]
+    
+    import pdb; pdb.set_trace()
     fp8 = round_to_fp8_represented_as_int8(input, n_mantissa, None)
     output = undo_int8_fp8(fp8, n_mantissa)
 

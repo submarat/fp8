@@ -30,16 +30,13 @@ def bfloat16_to_fp8(t: torch.Tensor, n_mantissa: int):
     # Stochastic rounding for mantissa
     mantissa_scaled = mantissa * (2 ** n_mantissa)
     mantissa_floor = torch.floor(mantissa_scaled)
-    # mantissa_prob = mantissa_scaled - mantissa_floor
-    # random_values = torch.rand_like(mantissa_prob)
-    # mantissa_rounded = mantissa_floor + (random_values < mantissa_prob).to(torch.float32)
     mantissa_rounded = mantissa_floor
     
     # Combine components
     result = (sign << 7)
     result |= (exponent.to(torch.uint8) << n_mantissa)
     result |= mantissa_rounded.to(torch.uint8)
-    
+
     # Handle special cases
     result[torch.isnan(t)] = 0b01111111 if n_mantissa == 2 else 0b01111111
     result[torch.isinf(t) & (t > 0)] = 0b01111100 if n_mantissa == 2 else 0b01111000
@@ -108,6 +105,14 @@ def round_to_fp8_represented_as_int8(
     random_numbers = torch.rand_like(probs_chop)
     chop_mask = (random_numbers > probs_chop) & t.isfinite()
     result = torch.where(chop_mask, chop, chop_next)
+
+    # Clamp to min and max of e5m2 and e4m3 ranges
+    if n_mantissa == 2:
+        result[(t > 57344)] = 0b0_11110_11
+        result[(t < -57344)] = 0b1_11110_11
+    if n_mantissa == 3:
+        result[(t > 448)] = 0b0_1111_110
+        result[(t < -448)] = 0b1_1111_110
     
     out.copy_(result)
     return out
