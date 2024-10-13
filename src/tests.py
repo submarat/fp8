@@ -160,8 +160,8 @@ def test_bfloat16_to_fp8_subnormals(test_case, n_mantissa, input_value, expected
     ("e5m2 positive infinity", 2, float('inf'), 0b01111100),
     ("e5m2 negative infinity", 2, float('-inf'), 0b11111100),
     ("e5m2 NaN", 2, float('nan'), 0b01111111),
-    ("e4m3 positive infinity", 3, float('inf'), 0b01111000),
-    ("e4m3 negative infinity", 3, float('-inf'), 0b11111000),
+    ("e4m3 positive infinity", 3, float('inf'), 0b01111110),
+    ("e4m3 negative infinity", 3, float('-inf'), 0b11111110),
     ("e4m3 NaN", 3, float('nan'), 0b01111111),
 ])
 def test_bfloat16_to_fp8_inf_nan(test_case, n_mantissa, input_value, expected_output):

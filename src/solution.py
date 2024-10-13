@@ -13,7 +13,7 @@ def bfloat16_to_fp8(t: torch.Tensor, n_mantissa: int):
 
     # Extract sign, exponent, and mantissa
     sign = torch.signbit(t).to(torch.uint8)
-    abs_t = torch.abs(t).to(torch.float32)  # Cast to float32 to avoid dealing with subnormals
+    abs_t = torch.abs(t).to(torch.float32)  # Cast to float32 to avoid bfloat16 subnormals
     exponent = torch.floor(torch.log2(abs_t)).to(torch.int32)
     mantissa = ((abs_t / (2.0 ** (exponent))) - 1.0).to(torch.bfloat16)
 
@@ -25,10 +25,9 @@ def bfloat16_to_fp8(t: torch.Tensor, n_mantissa: int):
     # Bias exponent
     exponent[~subnormal_mask] = (exponent[~subnormal_mask] + bias) % max_exponent
     
-    # Stochastic rounding for mantissa
+    # Scale mantissa to whole numbers and truncate the rest
     mantissa_scaled = mantissa * (2 ** n_mantissa)
-    mantissa_floor = torch.floor(mantissa_scaled)
-    mantissa_rounded = mantissa_floor
+    mantissa_rounded = torch.floor(mantissa_scaled)
     
     # Combine components
     result = (sign << 7)
@@ -85,9 +84,8 @@ def round_to_fp8_represented_as_int8(
 
     chop = bfloat16_to_fp8(t, n_mantissa)
     chop_bfloat16 = fp8_to_bfloat16(chop, n_mantissa)
-    chop_next = chop + chop.sign().to(torch.uint8)
 
-    chop_bfloat16 = fp8_to_bfloat16(chop, n_mantissa)
+    chop_next = chop + chop.sign().to(torch.uint8)
     chop_next_bfloat16 = fp8_to_bfloat16(chop_next, n_mantissa)
 
     intervals = abs(chop_bfloat16 - t)
@@ -96,8 +94,9 @@ def round_to_fp8_represented_as_int8(
     # Probability of rounding down to x1
     probs_chop = intervals/gap
     
+    # Stochastically round based on distance to x1
     random_numbers = torch.rand_like(probs_chop)
-    chop_mask = (random_numbers > probs_chop) & t.isfinite()
+    chop_mask = (random_numbers > probs_chop)
     result = torch.where(chop_mask, chop, chop_next)
 
     # Clamp to min and max of e5m2 and e4m3 ranges
@@ -108,10 +107,11 @@ def round_to_fp8_represented_as_int8(
         result[~t.isinf() & (t > 448)] = 0b0_1111_110
         result[~t.isinf() & (t < -448)] = 0b1_1111_110
 
-    # Handle special nan and inf
+    # Handle nan
     result[torch.isnan(t)] = 0b01111111 if n_mantissa == 2 else 0b01111111
-    result[torch.isinf(t) & (t > 0)] = 0b01111100 if n_mantissa == 2 else 0b01111000
-    result[torch.isinf(t) & (t < 0)] = 0b11111100 if n_mantissa == 2 else 0b11111000
+    # Handle inf. Clamp for n_mantissa == 3
+    result[torch.isinf(t) & (t > 0)] = 0b01111100 if n_mantissa == 2 else 0b01111110
+    result[torch.isinf(t) & (t < 0)] = 0b11111100 if n_mantissa == 2 else 0b11111110
     
     out.copy_(result)
     return out
