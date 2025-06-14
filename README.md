@@ -1,6 +1,6 @@
 # FP8 stochastic rounding
 
-Stochastic rounding of E4M3 and E5M2
+Stochastic rounding of E4M3 and E5M2 tensors
 
 Resources:
 - https://nhigham.com/2020/07/07/what-is-stochastic-rounding
